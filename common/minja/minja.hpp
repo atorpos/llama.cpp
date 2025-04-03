@@ -240,7 +240,7 @@ public:
       auto index = key.get<int>();
       return array_->at(index < 0 ? array_->size() + index : index);
     } else if (object_) {
-      if (!key.is_hashable()) throw std::runtime_error("Unashable type: " + dump());
+      if (!key.is_hashable()) throw std::runtime_error("Unhashable type: " + dump());
       auto it = object_->find(key.primitive_);
       if (it == object_->end()) return Value();
       return it->second;
@@ -249,7 +249,7 @@ public:
   }
   void set(const Value& key, const Value& value) {
     if (!object_) throw std::runtime_error("Value is not an object: " + dump());
-    if (!key.is_hashable()) throw std::runtime_error("Unashable type: " + dump());
+    if (!key.is_hashable()) throw std::runtime_error("Unhashable type: " + dump());
     (*object_)[key.primitive_] = value;
   }
   Value call(const std::shared_ptr<Context> & context, ArgumentsValue & args) const {
@@ -1378,11 +1378,25 @@ struct ArgumentsExpression {
     }
 };
 
-static std::string strip(const std::string & s) {
-  auto start = s.find_first_not_of(" \t\n\r");
+static std::string strip(const std::string & s, const std::string & chars = "", bool left = true, bool right = true) {
+  auto charset = chars.empty() ? " \t\n\r" : chars;
+  auto start = left ? s.find_first_not_of(charset) : 0;
   if (start == std::string::npos) return "";
-  auto end = s.find_last_not_of(" \t\n\r");
+  auto end = right ? s.find_last_not_of(charset) : s.size() - 1;
   return s.substr(start, end - start + 1);
+}
+
+static std::vector<std::string> split(const std::string & s, const std::string & sep) {
+  std::vector<std::string> result;
+  size_t start = 0;
+  size_t end = s.find(sep);
+  while (end != std::string::npos) {
+    result.push_back(s.substr(start, end - start));
+    start = end + sep.length();
+    end = s.find(sep, start);
+  }
+  result.push_back(s.substr(start));
+  return result;
 }
 
 static std::string capitalize(const std::string & s) {
@@ -1467,8 +1481,26 @@ public:
         } else if (obj.is_string()) {
           auto str = obj.get<std::string>();
           if (method->get_name() == "strip") {
-            vargs.expectArgs("strip method", {0, 0}, {0, 0});
-            return Value(strip(str));
+            vargs.expectArgs("strip method", {0, 1}, {0, 0});
+            auto chars = vargs.args.empty() ? "" : vargs.args[0].get<std::string>();
+            return Value(strip(str, chars));
+          } else if (method->get_name() == "lstrip") {
+            vargs.expectArgs("lstrip method", {0, 1}, {0, 0});
+            auto chars = vargs.args.empty() ? "" : vargs.args[0].get<std::string>();
+            return Value(strip(str, chars, /* left= */ true, /* right= */ false));
+          } else if (method->get_name() == "rstrip") {
+            vargs.expectArgs("rstrip method", {0, 1}, {0, 0});
+            auto chars = vargs.args.empty() ? "" : vargs.args[0].get<std::string>();
+            return Value(strip(str, chars, /* left= */ false, /* right= */ true));
+          } else if (method->get_name() == "split") {
+            vargs.expectArgs("split method", {1, 1}, {0, 0});
+            auto sep = vargs.args[0].get<std::string>();
+            auto parts = split(str, sep);
+            Value result = Value::array();
+            for (const auto& part : parts) {
+              result.push_back(Value(part));
+            }
+            return result;
           } else if (method->get_name() == "capitalize") {
             vargs.expectArgs("capitalize method", {0, 0}, {0, 0});
             return Value(capitalize(str));
@@ -2574,14 +2606,18 @@ inline std::shared_ptr<Context> Context::builtins() {
     auto & text = args.at("text");
     return text.is_null() ? text : Value(strip(text.get<std::string>()));
   }));
-  globals.set("lower", simple_function("lower", { "text" }, [](const std::shared_ptr<Context> &, Value & args) {
-    auto text = args.at("text");
-    if (text.is_null()) return text;
-    std::string res;
-    auto str = text.get<std::string>();
-    std::transform(str.begin(), str.end(), std::back_inserter(res), ::tolower);
-    return Value(res);
-  }));
+  auto char_transform_function = [](const std::string & name, const std::function<char(char)> & fn) {
+    return simple_function(name, { "text" }, [=](const std::shared_ptr<Context> &, Value & args) {
+      auto text = args.at("text");
+      if (text.is_null()) return text;
+      std::string res;
+      auto str = text.get<std::string>();
+      std::transform(str.begin(), str.end(), std::back_inserter(res), fn);
+      return Value(res);
+    });
+  };
+  globals.set("lower", char_transform_function("lower", ::tolower));
+  globals.set("upper", char_transform_function("upper", ::toupper));
   globals.set("default", Value::callable([=](const std::shared_ptr<Context> &, ArgumentsValue & args) {
     args.expectArgs("default", {2, 3}, {0, 1});
     auto & value = args.args[0];
