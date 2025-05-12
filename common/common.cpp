@@ -830,7 +830,7 @@ std::string fs_get_cache_directory() {
     if (getenv("LLAMA_CACHE")) {
         cache_directory = std::getenv("LLAMA_CACHE");
     } else {
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__) || defined(_AIX)
         if (std::getenv("XDG_CACHE_HOME")) {
             cache_directory = std::getenv("XDG_CACHE_HOME");
         } else {
@@ -840,7 +840,9 @@ std::string fs_get_cache_directory() {
         cache_directory = std::getenv("HOME") + std::string("/Library/Caches/");
 #elif defined(_WIN32)
         cache_directory = std::getenv("LOCALAPPDATA");
-#endif // __linux__
+#else
+#  error Unknown architecture
+#endif
         cache_directory = ensure_trailing_slash(cache_directory);
         cache_directory += "llama.cpp";
     }
@@ -1027,6 +1029,19 @@ struct common_init_result common_init_from_params(common_params & params) {
     return iparams;
 }
 
+std::string get_model_endpoint() {
+    const char * model_endpoint_env = getenv("MODEL_ENDPOINT");
+    // We still respect the use of environment-variable "HF_ENDPOINT" for backward-compatibility.
+    const char * hf_endpoint_env = getenv("HF_ENDPOINT");
+    const char * endpoint_env = model_endpoint_env ? model_endpoint_env : hf_endpoint_env;
+    std::string model_endpoint = "https://huggingface.co/";
+    if (endpoint_env) {
+        model_endpoint = endpoint_env;
+        if (model_endpoint.back() != '/') model_endpoint += '/';
+    }
+    return model_endpoint;
+}
+
 void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adapter_lora_info> & lora) {
     llama_clear_adapter_lora(ctx);
     for (auto & la : lora) {
@@ -1081,7 +1096,6 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.n_threads         = params.cpuparams.n_threads;
     cparams.n_threads_batch   = params.cpuparams_batch.n_threads == -1 ?
                                 params.cpuparams.n_threads : params.cpuparams_batch.n_threads;
-    cparams.logits_all        = params.logits_all;
     cparams.embeddings        = params.embedding;
     cparams.rope_scaling_type = params.rope_scaling_type;
     cparams.rope_freq_base    = params.rope_freq_base;
@@ -1099,6 +1113,7 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.offload_kqv       = !params.no_kv_offload;
     cparams.flash_attn        = params.flash_attn;
     cparams.no_perf           = params.no_perf;
+    cparams.op_offload        = !params.no_op_offload;
 
     if (params.reranking) {
         cparams.embeddings    = true;

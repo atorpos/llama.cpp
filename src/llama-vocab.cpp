@@ -415,6 +415,13 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                     "'(?:[sSdDmMtT]|[lL][lL]|[vV][eE]|[rR][eE])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]|\\s+(?!\\S)|\\s+",
                 };
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_SEED_CODER:
+                regex_exprs = {
+                    // original regex from tokenizer.json
+                    // "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1}| ?[^\\s\\p{L}\\p{N}\r\n]+|\\s*[\r\n]+|\\s+(?!\\S)|\\s+"
+                    "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1}| ?[^\\s\\p{L}\\p{N}\\r\\n]+|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
+                };
+                break;
             default:
                 // default regex for BPE tokenization pre-processing
                 regex_exprs = {
@@ -1506,7 +1513,8 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                     tokenizer_pre == "llama3"   ||
                     tokenizer_pre == "llama-v3" ||
                     tokenizer_pre == "llama-bpe"||
-                    tokenizer_pre == "falcon3") {
+                    tokenizer_pre == "falcon3"  ||
+                    tokenizer_pre == "pixtral") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_LLAMA3;
                 ignore_merges = true;
                 add_bos = true;
@@ -1572,6 +1580,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_PORO;
                 clean_spaces = false;
             } else if (
+                tokenizer_pre == "glm4" ||
                 tokenizer_pre == "chatglm-bpe") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_CHATGLM4;
                 special_bos_id = LLAMA_TOKEN_NULL;
@@ -1616,7 +1625,8 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 tokenizer_pre == "megrez") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_QWEN2;
             } else if (
-                tokenizer_pre == "gpt-4o") {
+                    tokenizer_pre == "gpt-4o" ||
+                    tokenizer_pre == "llama4") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_GPT4O;
                 clean_spaces = false;
             } else if (
@@ -1630,6 +1640,10 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
             } else if (
                 tokenizer_pre == "bailingmoe") {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_BAILINGMOE;
+                clean_spaces = false;
+            } else if (
+                tokenizer_pre == "seed-coder") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_SEED_CODER;
                 clean_spaces = false;
             } else {
                 throw std::runtime_error(format("unknown pre-tokenizer type: '%s'", tokenizer_pre.c_str()));
@@ -1839,6 +1853,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 if (false
                         || t.first == "<|fim_prefix|>"  // Qwen
                         || t.first == "<fim-prefix>"
+                        || t.first == "<fim_prefix>"    // Granite
                         || t.first == "<｜fim▁begin｜>" // DeepSeek
                         || t.first == "<PRE>"
                         || t.first == "▁<PRE>"          // CodeLlama
@@ -1857,6 +1872,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 if (false
                         || t.first == "<|fim_suffix|>" // Qwen
                         || t.first == "<fim-suffix>"
+                        || t.first == "<fim_suffix>"   // Granite
                         || t.first == "<｜fim▁hole｜>" // DeepSeek
                         || t.first == "<SUF>"
                         || t.first == "▁<SUF>"         // CodeLlama
@@ -1875,6 +1891,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 if (false
                         || t.first == "<|fim_middle|>" // Qwen
                         || t.first == "<fim-middle>"
+                        || t.first == "<fim_middle>"   // Granite
                         || t.first == "<｜fim▁end｜>"  // DeepSeek
                         || t.first == "<MID>"
                         || t.first == "▁<MID>"         // CodeLlama
@@ -1893,6 +1910,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 if (false
                         || t.first == "<|fim_pad|>" // Qwen
                         || t.first == "<fim-pad>"
+                        || t.first == "<fim_pad>"   // Granite
                         || t.first == "<PAD>"
                         ) {
                     special_fim_pad_id = t.second;
@@ -1911,6 +1929,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                         || t.first == "<|repo_name|>"
                         || t.first == "<fim-repo>"
                         || t.first == "<REPO>"
+                        || t.first == "<reponame>"    // Granite
                         ) {
                     special_fim_rep_id = t.second;
                     if ((id_to_token[t.second].attr & LLAMA_TOKEN_ATTR_CONTROL) == 0) {
